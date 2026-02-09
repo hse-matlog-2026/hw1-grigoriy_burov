@@ -23,7 +23,7 @@ def is_variable(string: str) -> bool:
         ``True`` if the given string is a variable name, ``False`` otherwise.
     """
     return string[0] >= 'p' and string[0] <= 'z' and \
-           (len(string) == 1 or string[1:].isdecimal())
+        (len(string) == 1 or string[1:].isdecimal())
 
 @lru_cache(maxsize=100) # Cache the return value of is_constant
 def is_constant(string: str) -> bool:
@@ -110,6 +110,11 @@ class Formula:
             The standard string representation of the current formula.
         """
         # Task 1.1
+        if is_variable(self.root) or is_constant(self.root):
+            return self.root
+        if is_unary(self.root):
+            return self.root + str(self.first)
+        return "(" + str(self.first) + self.root + str(self.second) + ")"
 
     def __eq__(self, other: object) -> bool:
         """Compares the current formula with the given one.
@@ -146,6 +151,15 @@ class Formula:
             A set of all variable names used in the current formula.
         """
         # Task 1.2
+        vars_set = set()
+        if is_variable(self.root):
+            vars_set.add(self.root)
+        if hasattr(self, 'first') and self.first is not None:
+            vars_set.update(self.first.variables())
+        if hasattr(self, 'second') and self.second is not None:
+            vars_set.update(self.second.variables())
+
+        return vars_set
 
     @memoized_parameterless_method
     def operators(self) -> Set[str]:
@@ -156,7 +170,14 @@ class Formula:
             current formula.
         """
         # Task 1.3
-        
+        ops_set = set()
+        if is_constant(self.root) or is_unary(self.root) or is_binary(self.root):
+            ops_set.add(self.root)
+        if hasattr(self, 'first') and self.first is not None:
+            ops_set.update(self.first.operators())
+        if hasattr(self, 'second') and self.second is not None:
+            ops_set.update(self.second.operators())
+        return ops_set
     @staticmethod
     def _parse_prefix(string: str) -> Tuple[Union[Formula, None], str]:
         """Parses a prefix of the given string into a formula.
@@ -175,6 +196,46 @@ class Formula:
             is a string with some human-readable content.
         """
         # Task 1.4
+        if not string:
+            return None, "Empty string"
+
+        if is_constant(string[0]):
+            return Formula(string[0]), string[1:]
+        if is_variable(string[0]):
+            length = 1
+            while length < len(string) and string[length].isdigit():
+                length += 1
+            return Formula(string[:length]), string[length:]
+        if is_unary(string[0]):
+            f, rest = Formula._parse_prefix(string[1:])
+            if f is None:
+                return None, rest
+            return Formula(string[0], f), rest
+        if string[0] == '(':
+            f1, rest1 = Formula._parse_prefix(string[1:])
+            if f1 is None:
+                return None, rest1
+            if not rest1:
+                return None, "Unexpected end of string"
+
+            op = None
+            rest_after_op = ""
+            if rest1.startswith('->'):
+                op = '->'
+                rest_after_op = rest1[2:]
+            elif is_binary(rest1[0]):
+                op = rest1[0]
+                rest_after_op = rest1[1:]
+            else:
+                return None, "Expected binary operator"
+
+            f2, rest2 = Formula._parse_prefix(rest_after_op)
+            if f2 is None:
+                return None, rest2
+            if not rest2 or rest2[0] != ')':
+                return None, "Missing closing parenthesis"
+            return Formula(op, f1, f2), rest2[1:]
+        return None, "Invalid start of formula"
 
     @staticmethod
     def is_formula(string: str) -> bool:
@@ -188,7 +249,8 @@ class Formula:
             representation of a formula, ``False`` otherwise.
         """
         # Task 1.5
-        
+        f, rest = Formula._parse_prefix(string)
+        return f is not None and rest == ""
     @staticmethod
     def parse(string: str) -> Formula:
         """Parses the given valid string representation into a formula.
@@ -201,6 +263,8 @@ class Formula:
         """
         assert Formula.is_formula(string)
         # Task 1.6
+        f, _ = Formula._parse_prefix(string)
+        return f
 
     def polish(self) -> str:
         """Computes the polish notation representation of the current formula.
@@ -209,6 +273,11 @@ class Formula:
             The polish notation representation of the current formula.
         """
         # Optional Task 1.7
+        if is_variable(self.root) or is_constant(self.root):
+            return self.root
+        if is_unary(self.root):
+            return self.root + self.first.polish()
+        return self.root + self.first.polish() + self.second.polish()
 
     @staticmethod
     def parse_polish(string: str) -> Formula:
@@ -221,6 +290,41 @@ class Formula:
             A formula whose polish notation representation is the given string.
         """
         # Optional Task 1.8
+        def _parse_polish_prefix(s: str) -> Tuple[Optional[Formula], str]:
+            if not s:
+                return None, "Empty string"
+            if is_constant(s[0]):
+                return Formula(s[0]), s[1:]
+            if is_variable(s[0]):
+                length = 1
+                while length < len(s) and s[length].isdigit():
+                    length += 1
+                return Formula(s[:length]), s[length:]
+            if is_unary(s[0]):
+                f, rest = _parse_polish_prefix(s[1:])
+                if f is None: return None, rest
+                return Formula(s[0], f), rest
+
+            op = None
+            rest_after_op = ""
+            if s.startswith('->'):
+                op = '->'
+                rest_after_op = s[2:]
+            elif is_binary(s[0]):
+                op = s[0]
+                rest_after_op = s[1:]
+
+            if op:
+                f1, r1 = _parse_polish_prefix(rest_after_op)
+                if f1 is None: return None, r1
+                f2, r2 = _parse_polish_prefix(r1)
+                if f2 is None: return None, r2
+                return Formula(op, f1, f2), r2
+            return None, "Invalid symbol"
+
+        f, rest = _parse_polish_prefix(string)
+        assert f is not None and rest == ""
+        return f
 
     def substitute_variables(self, substitution_map: Mapping[str, Formula]) -> \
             Formula:
